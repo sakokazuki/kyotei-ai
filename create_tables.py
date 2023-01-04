@@ -608,7 +608,7 @@ def create_racer_table(source_df, past_data, need_update=False):
     target = source_df
 
     # 既存のテーブルを使う場合
-    if need_update == False and past_data != None:
+    if need_update == False and len(past_data) > 0:
         # pickleから復元
         racer_df = past_data
         # 既存のテーブルに含まれていないレースコードのデータのみ抽出
@@ -724,7 +724,7 @@ class DataTables:
         try:
             past_racer_data = pd.read_pickle("pic_racer_table")
         except (OSError, IOError) as e:
-            past_racer_data = None
+            past_racer_data = pd.DataFrame()
         racer_table = create_racer_table(race_table, past_racer_data, update_all)
         racer_table.to_pickle("pic_racer_table")
         
