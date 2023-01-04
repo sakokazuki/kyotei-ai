@@ -608,7 +608,7 @@ def create_racer_table(source_df, past_data, need_update=False):
     target = source_df
 
     # 既存のテーブルを使う場合
-    if need_update == False:
+    if need_update == False and past_data != None:
         # pickleから復元
         racer_df = past_data
         # 既存のテーブルに含まれていないレースコードのデータのみ抽出
@@ -718,8 +718,14 @@ class DataTables:
             race_table = pd.read_pickle('pic_race_table')
             return_table = pd.read_pickle('pic_return_table')
             bangumi_table = pd.read_pickle('pic_bangumi_table')
-            
-        racer_table = create_racer_table(race_table, pd.read_pickle("pic_racer_table"), update_all)
+        
+        
+        # レーサー成績データをpickeから戻す
+        try:
+            past_racer_data = pd.read_pickle("pic_racer_table")
+        except (OSError, IOError) as e:
+            past_racer_data = None
+        racer_table = create_racer_table(race_table, past_racer_data, update_all)
         racer_table.to_pickle("pic_racer_table")
         
         self.race_t = race_table
