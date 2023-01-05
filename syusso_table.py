@@ -13,12 +13,13 @@ import datetime as dt
 
 import os
 import create_tables
+import utils
 
 class SyussoTable:
-    def __init__(self, date, studium):
+    def __init__(self, date, stadium):
         # date = '20221122'
-        # studium = 'HWJ'
-        pickle_name = 'syusso_'+date+studium
+        # stadium = 'HWJ'
+        pickle_name = 'syusso_'+date+stadium
         # pd.read_pickle(pickle_name)
         # print(pickle_name)
         # print(test)
@@ -26,22 +27,29 @@ class SyussoTable:
         if is_file:
             self.data = pd.read_pickle(pickle_name)
         else:
-            self.data = self._scrape(date, studium)
+            self.data = self._scrape(date, stadium)
+            racer_table = self._create_racer_table(pd.read_pickle("pic_race_table"), self.data)
+            racer_table = racer_table.drop(['スタジアムコード', '日付', '登録番号', '選手名', 'モーター番号', 'ボート番号', 
+                                            '年齢', '支部', '体重', '級別', '全国勝率', '全国2連対率', '当地勝率', '当地2連対率',
+                                            'モーター2連対率', 'ボート2連対率', 
+                                            '今節成績_1-1', '今節成績_1-2',
+                                            '今節成績_2-1', '今節成績_2-2',
+                                            '今節成績_3-1', '今節成績_3-2',
+                                            '今節成績_4-1', '今節成績_4-2',
+                                            '今節成績_5-1', '今節成績_5-2',
+                                            '今節成績_6-1', '今節成績_6-2',
+                                           ], axis=1)
+            self.data = pd.merge(self.data, racer_table, on=['レースコード', '艇番'])
+            
+            self.data.to_pickle(pickle_name)
+        # 直前情報のスクレイピングとマージ 
+        before_info = self._scrape_beforeinfo(date, stadium)
+        if before_info.empty == False:
+            self.data = pd.merge(self.data, before_info, on=['レースコード', '艇番'], how='left')
             self.data.to_pickle(pickle_name)
         
+        
         # racer_table = create_tables.create_racer_table(self.data, pd.read_pickle("pic_racer_table"))
-        racer_table = self._create_racer_table(pd.read_pickle("pic_race_table"), self.data)
-        racer_table = racer_table.drop(['スタジアムコード', '日付', '登録番号', '選手名', 'モーター番号', 'ボート番号', 
-                                        '年齢', '支部', '体重', '級別', '全国勝率', '全国2連対率', '当地勝率', '当地2連対率',
-                                        'モーター2連対率', 'ボート2連対率', 
-                                        '今節成績_1-1', '今節成績_1-2',
-                                        '今節成績_2-1', '今節成績_2-2',
-                                        '今節成績_3-1', '今節成績_3-2',
-                                        '今節成績_4-1', '今節成績_4-2',
-                                        '今節成績_5-1', '今節成績_5-2',
-                                        '今節成績_6-1', '今節成績_6-2',
-                                       ], axis=1)
-        self.data = pd.merge(self.data, racer_table, on=['レースコード', '艇番'])
         
         # self.racer_t = racer_table
         self.data_p = self._preprocessing(self.data)
@@ -94,9 +102,13 @@ class SyussoTable:
         df.drop(['選手名', '日付', 'スタジアムコード'], axis=1, inplace=True)
         df.drop(['コース別_1着率_all', 'コース別_1着率_10', 'コース別_3着率_all', 'コース別_3着率_10'], axis=1, inplace=True)
         df = df.set_index('レースコード')
+        
+        # 直前情報がでているもののみにする
+        df = df[~df['展示タイム'].isna()]
         return df
     
 
+    # スクレイピングHTMLパース
     def _parse_html(self, tbody):
         n = 0
         retval = []
@@ -205,7 +217,7 @@ class SyussoTable:
             retval.append(data)
         return retval
 
-
+    # スクレイピングリクエスト
     def _get_syusso(self, url):
         print(url)
         table =  pd.read_html(url)
@@ -216,9 +228,9 @@ class SyussoTable:
         tbody = syusso_table.select('tbody')
 
         return self._parse_html(tbody)
-
     
-    def _scrape(self, date, studium):
+    # スクレイピング
+    def _scrape(self, date, stadium):
         FIXED_URL = 'https://www.boatrace.jp/owpc/pc/race/racelist'
         INTERVAL=3
         
@@ -226,19 +238,12 @@ class SyussoTable:
 
         for r in range(1,13):
             race_round = str(r)
-            race_code = date + studium + race_round.zfill(2)
-            # 3レターコードと場コードの対応表
-            dict_stadium = {'KRY': '01', 'TDA': '02', 'EDG': '03', 'HWJ': '04',
-                            'TMG': '05', 'HMN': '06', 'GMG': '07', 'TKN': '08',
-                            'TSU': '09', 'MKN': '10', 'BWK': '11', 'SME': '12',
-                            'AMG': '13', 'NRT': '14', 'MRG': '15', 'KJM': '16',
-                            'MYJ': '17', 'TKY': '18', 'SMS': '19', 'WKM': '20',
-                            'ASY': '21', 'FKO': '22', 'KRT': '23', 'OMR': '24'
-                            }
-            studium_code = dict_stadium[studium]
+            race_code = date + stadium + race_round.zfill(2)
+            
+            stadium_code = utils.dict_stadium(stadium)
 
             target_url = FIXED_URL  + "?rno=" + race_round\
-                     + "&jcd=" + studium_code+ "&hd=" + date
+                     + "&jcd=" + stadium_code+ "&hd=" + date
 
             df_columns = ['艇番', '選手名', 'モーター番号', 'ボート番号', '登録番号', '年齢', '支部', '体重', '級別',
                            '全国勝率', '全国2連対率', '当地勝率', '当地2連対率', 'モーター2連対率', 'ボート2連対率', 
@@ -253,7 +258,7 @@ class SyussoTable:
             df.columns = df_columns
             df['レースコード'] = race_code
             df['日付'] = race_date
-            df['スタジアムコード'] = studium_code
+            df['スタジアムコード'] = stadium_code
             # df.index = [race_code] * len(df)
             # print(df)
 
@@ -263,12 +268,133 @@ class SyussoTable:
             sleep(INTERVAL)
         return syusso_table
     
+    # 直前情報のHTMLパース
+    def _parse_html_beforeinfo(self, html):
+
+        retval = []
+
+        # 水温や風速など
+        # 天候     
+        weather     = html.find('div', class_='weather1_bodyUnit is-weather').find('span', 'weather1_bodyUnitLabelTitle').get_text()
+        # 風速(m) 
+        wind_speed  = html.find('div', class_='weather1_bodyUnit is-wind').find('span', 'weather1_bodyUnitLabelData').get_text()
+        # 波の高さ(cm)
+        wave_height = html.find('div', class_='weather1_bodyUnit is-wave').find('span', 'weather1_bodyUnitLabelData').get_text()
+        # 風向
+        direction_elem = html.find('div', class_='weather1_bodyUnit is-direction').find('p', 'weather1_bodyUnitImage')
+        wind_direction_elem = html.find('div', class_='weather1_bodyUnit is-windDirection').find('p', 'weather1_bodyUnitImage')
+        # 風向と会場の方向についてるクラス名で風の方角を決定できる
+        direction_class = direction_elem['class'][1] # is-direction5
+        wind_direction_class = wind_direction_elem['class'][1] # is-wind11
+        # クラス名の数字のみ取り出す
+        direction_no = int(direction_class.replace('is-direction', ''))
+        wind_direction_no = int(wind_direction_class.replace('is-wind', ''))
+        # 会場の向きと風向きの差分で方向が定る 
+        wind_direction = (wind_direction_no - direction_no) % 16
+        if wind_direction == 0:
+            wind_direction_str = "南"
+        if wind_direction == 2:
+            wind_direction_str = "南西"
+        if wind_direction == 4:
+            wind_direction_str = "西"
+        if wind_direction == 6:
+            wind_direction_str = "北西"
+        if wind_direction == 8:
+            wind_direction_str = "北"
+        if wind_direction == 10:
+            wind_direction_str = "北東"
+        if wind_direction == 12:
+            wind_direction_str = "東"
+        if wind_direction == 14:
+            wind_direction_str = "南東"
+
+        # print(weather, wind_speed, wave_height)
+        # print(wind_direction_str)
+
+        table = html.find('div', class_='grid is-type3 h-clear').select_one('table')
+        tbody = table.select('tbody')
+
+        for b in tbody:
+            tr0 = b.select('tr')[0]
+            td_teiban = b.select('td')[0]
+            td_tenji_time = b.select('td')[4]
+
+            teiban =  int(td_teiban.get_text())
+            tenji_time = td_tenji_time.get_text()
+
+            if tenji_time == '\xa0' :
+                break
+
+            data = []
+            data.append(teiban)
+            data.append(float(tenji_time))
+            data.append(weather)
+            data.append(wind_speed.replace('m', ''))
+            data.append(wind_direction_str)
+            data.append(wave_height.replace('cm', ''))
+
+            retval.append(data)
+
+        return retval
+    
+    # 直前情報リクエスト
+    def _get_beforeinfo(self, url):
+        print(url)
+        table = pd.read_html(url)
+        html = get(url)
+        soup = BeautifulSoup(html.content, 'html.parser')
+        return self._parse_html_beforeinfo(soup)
+    
+    # 直前情報スクレイピング
+    def _scrape_beforeinfo(self, date, stadium):
+        FIXED_URL = 'https://www.boatrace.jp/owpc/pc/race/beforeinfo'
+        INTERVAL=3
+        
+        beforeinfo_table = pd.DataFrame()
+        
+        for r in range(1, 13):
+            
+            
+            race_round = str(r)
+            race_code = date + stadium + race_round.zfill(2)
+            
+            # すでに含まれていたらスクレイピングスキップ
+            is_null = True
+            if '展示タイム' in self.data:
+                is_null = self.data[self.data['レースコード'] == race_code]['展示タイム'].isna().iloc[0]
+            if is_null == False:
+                print(race_code, '直前情報リクエスト済みなのでスキップ')
+                continue
+            
+            stadium_code = utils.dict_stadium(stadium)
+            
+            target_url = FIXED_URL + "?rno=" + race_round\
+                + "&jcd=" + stadium_code + "&hd=" + date
+            # [[1, 6.81, '晴', '3', '北西', '3'],
+            df_columns = ['艇番', '展示タイム', '天候', '風速(m)', '風向', '波の高さ(cm)']
+            before_info = self._get_beforeinfo(target_url)
+            if len(before_info) == 0:
+                break
+
+            df = pd.DataFrame(before_info)
+            df.columns = df_columns
+            df['レースコード'] = race_code
+            
+            beforeinfo_table = pd.concat([beforeinfo_table, df])
+            
+            # 指定した間隔をあける
+            sleep(INTERVAL)
+            
+        return beforeinfo_table
+        
+    
     
     def _create_racer_array(self, result_table):
         li = {}
         for no in result_table['登録番号'].unique():
             li[no] = result_table[result_table['登録番号'] == no]
         return li
+    
     def _create_racer_table(self, source_df, target_df):
         racer_df = pd.DataFrame()
         test = self._create_racer_array(target_df)

@@ -29,6 +29,16 @@ def create_race_code(date, stadium_code, race_round):
     stadium_code = kanji_to_stadium_code(stadium_code)
     return date.strftime('%Y%m%d') + stadium_code + race_round
 
+def dict_stadium(code):
+    dict_stadium = {'KRY': '01', 'TDA': '02', 'EDG': '03', 'HWJ': '04',
+                    'TMG': '05', 'HMN': '06', 'GMG': '07', 'TKN': '08',
+                    'TSU': '09', 'MKN': '10', 'BWK': '11', 'SME': '12',
+                    'AMG': '13', 'NRT': '14', 'MRG': '15', 'KJM': '16',
+                    'MYJ': '17', 'TKY': '18', 'SMS': '19', 'WKM': '20',
+                    'ASY': '21', 'FKO': '22', 'KRT': '23', 'OMR': '24'
+                    }
+    return dict_stadium[code]
+
 def create_race_result_url(race_code):
     # https://www.boatrace.jp/owpc/pc/race/racelist?rno=12&jcd=07&hd=20221124
     # 20222411FKO01
