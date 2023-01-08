@@ -15,13 +15,9 @@ ipython_config.py
 
 __pycache__
 
-pic_race_table
-pic_racer_table
-pic_return_table
-pic_bangumi_Table
+*.pickle
 
-syusso_2022*
-syusso_2023*
+pic_syusso/
 
 results_bangumi_csv/
 results_bangumi_lzh/

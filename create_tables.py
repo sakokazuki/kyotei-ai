@@ -6,6 +6,7 @@ import datetime as dt
 import numpy as np
 import pandas as pd
 import utils
+import racer_table as m_racer_table
 from tqdm import tqdm
 
 # レース結果テキストのパース
@@ -551,8 +552,6 @@ def parse_bangumi_txet_file(text_file):
             
     return retval 
     
-
-
 # 番組テーブルの作成
 def create_bangumi_table(start_date='', end_date=''):
     bangumi_array = []
@@ -596,161 +595,77 @@ def create_bangumi_table(start_date='', end_date=''):
     df_bangumi = pd.DataFrame(bangumi_array)
     return df_bangumi
 
-# レーステーブルをレーサーごとに分けるj
-def create_racer_array(result_table):
-    li = {}
-    for no in result_table['登録番号'].unique():
-        li[no] = result_table[result_table['登録番号'] == no]
-    return li
-
-def create_racer_table(source_df, past_data, need_update=False):
-    racer_df = pd.DataFrame()
-    target = source_df
-
-    # 既存のテーブルを使う場合
-    if need_update == False and len(past_data) > 0:
-        # pickleから復元
-        racer_df = past_data
-        # 既存のテーブルに含まれていないレースコードのデータのみ抽出
-        target = source_df[~source_df["レースコード"].isin(racer_df['レースコード'])]
-
-    test = create_racer_array(target) 
-    source = create_racer_array(source_df)
-
-    for racer_id in tqdm(test):
-        new_df = test[racer_id].copy()
-        # 過去データ参照するとき用に順位に文字が入っているのを飛ばす (飛ばすのか変換するのか悩みどころ)
-        source_racer = source[racer_id].copy()
-        source_racer['tmp'] = source_racer['着順'].map(lambda x: type(x) == int)
-        source_racer = source_racer[source_racer['tmp']==True].drop(['tmp'], axis=1)
-        source_racer['着順'] = source_racer['着順'].astype(int)
-
-        for i, row in new_df.iterrows():
-            # 着順を計算するラムダ
-            calc_top1_proba = lambda df: 0 if len(df) == 0 else len(df[df['着順'] == 1])/len(df)
-            calc_top3_proba = lambda df: 0 if len(df) == 0 else len(df[df['着順'] <= 3])/len(df)
-
-            # 対象となるレース以前の日付のみのデータに
-            source_prev = source_racer[source_racer['日付'] < row['日付']]
-            stadium_code = row['スタジアムコード']
-            teiban = row['艇番']
-
-            # 全データ/会場/艇番 で絞ったその選手の過去データ
-            all_df     = source_prev
-            stadium_df = source_prev[source_prev['スタジアムコード'] == stadium_code]
-            teiban_df  = source_prev[source_prev['艇番'] == teiban]
-
-            # 全データの1着率,3着率の計算
-            all_top1    = calc_top1_proba(all_df)
-            all_top1_10 = calc_top1_proba(all_df.tail(10))
-            all_top3    = calc_top3_proba(all_df)
-            all_top3_10 = calc_top3_proba(all_df.tail(10))
-            # スタジアムのデータの1着率,3着率の計算
-            stadium_top1    = calc_top1_proba(stadium_df)
-            stadium_top1_10 = calc_top1_proba(stadium_df.tail(10))
-            stadium_top3    = calc_top3_proba(stadium_df)
-            stadium_top3_10 = calc_top3_proba(stadium_df.tail(10))
-            # コース別のデータの1着率,3着率の計算
-            teiban_top1    = calc_top1_proba(teiban_df)
-            teiban_top1_10 = calc_top1_proba(teiban_df.tail(10))
-            teiban_top3    = calc_top3_proba(teiban_df)
-            teiban_top3_10 = calc_top3_proba(teiban_df.tail(10))
-
-            new_df.at[i, '全国_1着率_all'] = all_top1
-            new_df.at[i, '全国_1着率_10'] = all_top1_10
-            new_df.at[i, '全国_3着率_all'] = all_top3
-            new_df.at[i, '全国_3着率_10'] = all_top3_10
-
-            new_df.at[i, '当地_1着率_all'] = stadium_top1 
-            new_df.at[i, '当地_1着率_10'] = stadium_top1_10 
-            new_df.at[i, '当地_3着率_all'] = stadium_top3
-            new_df.at[i, '当地_3着率_10'] = stadium_top3_10 
-
-            new_df.at[i, 'コース別_1着率_all'] = teiban_top1 
-            new_df.at[i, 'コース別_1着率_10'] = teiban_top1_10 
-            new_df.at[i, 'コース別_3着率_all'] = teiban_top3
-            new_df.at[i, 'コース別_3着率_10'] = teiban_top3_10 
-
-        racer_df = pd.concat([racer_df, new_df])
-        
-    return racer_df
-
 class DataTables:
-    def __init__(self, need_update=False, update_all=False):
+    # 過去データからオブジェクトを作成するだけ
+    @classmethod
+    def create(cls):
+        race_table = pd.read_pickle('pic_race_table.pickle')
+        return_table = pd.read_pickle('pic_return_table.pickle')
+        bangumi_table = pd.read_pickle('pic_bangumi_table.pickle')
+        return cls(race_table, return_table, bangumi_table)
         
-        # 全データをパースし直す
-        if update_all == True:
-            race_table, return_table = create_race_table()
-            bangumi_table = create_bangumi_table()
-            race_table.to_pickle('pic_race_table')
-            return_table.to_pickle('pic_return_table')
-            bangumi_table.to_pickle('pic_bangumi_table')
-            
-        # 追加データの更新
-        elif need_update == True:
-            race_table = pd.read_pickle('pic_race_table')
-            return_table = pd.read_pickle('pic_return_table')
-            bangumi_table = pd.read_pickle('pic_bangumi_table')
-            
-            # 保存済みのテーブルの最後の日にちを取得し、その次の日のstringを得る
-            last_save_date = race_table.tail(1).loc[:, '日付']
-            start_date = last_save_date - dt.timedelta(1)
-            start_date_str = start_date.iloc[-1].strftime('%Y-%m-%d')
-            
-            # 新しく追加されたデータを拾う
-            new_race_table, new_return_table = create_race_table(start_date=start_date_str)
-            new_bangumi_table = create_bangumi_table(start_date=start_date_str)
-            # 新しく追加されたデータのうち、まだテーブルに含まれていないものだけを抽出
-            new_race_table = self._extract_non_dupulicate_race_id(race_table, new_race_table)
-            new_return_table = self._extract_non_dupulicate_race_id(return_table, new_return_table)
-            new_bangumi_table = self._extract_non_dupulicate_race_id(bangumi_table, new_bangumi_table)
-            
-            race_table = pd.concat([race_table, new_race_table])
-            return_table = pd.concat([return_table, new_return_table])
-            bangumi_table = pd.concat([bangumi_table, new_bangumi_table])
-            
-            race_table.to_pickle('pic_race_table')
-            return_table.to_pickle('pic_return_table')
-            bangumi_table.to_pickle('pic_bangumi_table')
+    # 新しいデータを使ってテーブルを更新しながら作成
+    # ※新しいデータのダウンロードは別途download_race_dataモジュールで行う
+    @classmethod
+    def create_with_update(cls):
+        # 関数
+        def extract_non_dupulicate_race_id(src, target):
+            unique = src['レースコード'].unique()
+            processed = target[~target['レースコード'].isin(unique)]
+            return processed
         
-        # 更新をせずpickleから読み込むだけ
-        else:
-            race_table = pd.read_pickle('pic_race_table')
-            return_table = pd.read_pickle('pic_return_table')
-            bangumi_table = pd.read_pickle('pic_bangumi_table')
+        race_table = pd.read_pickle('pic_race_table.pickle')
+        return_table = pd.read_pickle('pic_return_table.pickle.')
+        bangumi_table = pd.read_pickle('pic_bangumi_table.pickle')
+
+        # 保存済みのテーブルの最後の日にちを取得し、その次の日のstringを得る
+        last_save_date = race_table.tail(1).loc[:, '日付']
+        start_date = last_save_date - dt.timedelta(1)
+        start_date_str = start_date.iloc[-1].strftime('%Y-%m-%d')
+
+        # 新しく追加されたデータを拾う
+        new_race_table, new_return_table = create_race_table(start_date=start_date_str)
+        new_bangumi_table = create_bangumi_table(start_date=start_date_str)
+        # 新しく追加されたデータのうち、まだテーブルに含まれていないものだけを抽出
+        new_race_table = extract_non_dupulicate_race_id(race_table, new_race_table)
+        new_return_table = extract_non_dupulicate_race_id(return_table, new_return_table)
+        new_bangumi_table = extract_non_dupulicate_race_id(bangumi_table, new_bangumi_table)
+
+        race_table = pd.concat([race_table, new_race_table])
+        return_table = pd.concat([return_table, new_return_table])
+        bangumi_table = pd.concat([bangumi_table, new_bangumi_table])
+
+        race_table.to_pickle('pic_race_table.pickle')
+        return_table.to_pickle('pic_return_table.pickle')
+        bangumi_table.to_pickle('pic_bangumi_table.pickle')
+        return cls(race_table, return_table, bangumi_table)
+    
+    # 最初から全部作成.テーブルの構造を変えたときなど
+    @classmethod
+    def create_with_all_update(cls):
+        race_table, return_table = create_race_table()
+        bangumi_table = create_bangumi_table()
+        race_table.to_pickle('pic_race_table.pickle')
+        return_table.to_pickle('pic_return_table.pickle')
+        bangumi_table.to_pickle('pic_bangumi_table.pickle')
+        return cls(race_table, return_table, bangumi_table)
         
         
-        # レーサー成績データをpickeから戻す
-        try:
-            past_racer_data = pd.read_pickle("pic_racer_table")
-        except (OSError, IOError) as e:
-            past_racer_data = pd.DataFrame()
-        racer_table = create_racer_table(race_table, past_racer_data, update_all)
-        racer_table.to_pickle("pic_racer_table")
+        
+    # 基本的にコンストラクタからの生成はせず、上記クラスメソッドのどれかを使って生成する
+    def __init__(self, race_table, return_table, bangumi_table):
+        
+        # レーサーテーブル
+        racer_table = m_racer_table.RacerTable.create_from_pickle(race_table, "pic_racer_table.pickle")
         
         self.race_t = race_table
-        self.racer_t = racer_table
+        self.racer_t = racer_table.data_p
         self.return_t = return_table
         self.bangumi_t = bangumi_table
+        # 番組とレースをマージ
         self.merged_t = pd.merge(race_table, bangumi_table.drop(['モーター番号', 'ボート番号', '選手名', '登録番号'], axis=1), on=['レースコード', '艇番'])
-        self.merge_racer_race()
-    
-    # レーステーブルにレーサごとの勝率データが入ったテーブルをマージ
-    def merge_racer_race(self):
-        racer_t = self.racer_t.drop(['スタジアムコード', '日付', '着順', '登録番号', '選手名', 'モーター番号', 'ボート番号', '展示タイム', '進入コース', 'スタートタイミング', 'レースタイム', '距離(m)', '天候', '風向', '風速(m)', '波の高さ(cm)', '決まり手'], axis=1)
-        self.merged_t = pd.merge(self.merged_t, racer_t, on=['レースコード', '艇番'])
-        
-    # 出走データはあるけど結果がないrace_idを確認(キャンセルになったレース?)
-    def extract_cancel_race_bangumi_table(self):
-        return self._extract_non_dupulicate_race_id(self.race_t, self.bangumi_t)
-        
-    
-    def _extract_non_dupulicate_race_id(self, src, target):
-        unique = src['レースコード'].unique()
-        # print(unique)
-        # print(target[~target['レースコード'].isin(unique)])
-        processed = target[~target['レースコード'].isin(unique)]
-        return processed
+        # 選手過去データテーブルとマージ
+        self.merged_t = racer_table.merge_racer_race(self.merged_t)
     
     def test(self):
         
@@ -758,7 +673,7 @@ class DataTables:
             print("レースの結果と返金のテーブルの数が合いません")
             return
         
-        print('RaceTables:テスト成功')
+        print('create_tables:テスト成功')
               
     def _test_same_row(self):
         len_race = len(self.race_t)
@@ -766,4 +681,6 @@ class DataTables:
         len_return = len(self.return_t)
         len_merged = len(self.merged_t)
         
-        return len_race == len_return*6 and len_race == len_merged and len_race == len_racer
+        return len_race == len_return*6 and \
+               len_race == len_merged  and \
+               len_race == len_racer

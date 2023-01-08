@@ -14,66 +14,80 @@ import datetime as dt
 import os
 import create_tables
 import utils
+import racer_table as m_racer_table
 
 class SyussoTable:
-    def __init__(self, date, stadium):
+    # レーサーの過去データの作成やカテゴリ変数化に必要なのでRaceResultsに依存する形に
+    def __init__(self, race_results, date, stadium):
+        self.race_results = race_results
         # date = '20221122'
         # stadium = 'HWJ'
-        pickle_name = 'syusso_'+date+stadium
-        # pd.read_pickle(pickle_name)
-        # print(pickle_name)
-        # print(test)
-        is_file = os.path.isfile(pickle_name)
-        if is_file:
-            self.data = pd.read_pickle(pickle_name)
-        else:
+        os.makedirs('pic_syusso', exist_ok=True)
+        syusso_pickle_name = 'pic_syusso/syusso_'+date+stadium+'.pickle'
+        before_pickle_name = 'pic_syusso/before_'+date+stadium+'.pickle'
+        
+        # 出走テーブルのpickleがあれば復元
+        self.data = self.read_pickle(syusso_pickle_name)
+        # 出走テーブルのpickleがなければスクレイピングしてレーステーブルと合成。保存
+        if self.data.empty == True:
             self.data = self._scrape(date, stadium)
-            racer_table = self._create_racer_table(pd.read_pickle("pic_race_table"), self.data)
-            racer_table = racer_table.drop(['スタジアムコード', '日付', '登録番号', '選手名', 'モーター番号', 'ボート番号', 
-                                            '年齢', '支部', '体重', '級別', '全国勝率', '全国2連対率', '当地勝率', '当地2連対率',
-                                            'モーター2連対率', 'ボート2連対率', 
-                                            '今節成績_1-1', '今節成績_1-2',
-                                            '今節成績_2-1', '今節成績_2-2',
-                                            '今節成績_3-1', '今節成績_3-2',
-                                            '今節成績_4-1', '今節成績_4-2',
-                                            '今節成績_5-1', '今節成績_5-2',
-                                            '今節成績_6-1', '今節成績_6-2',
-                                           ], axis=1)
-            self.data = pd.merge(self.data, racer_table, on=['レースコード', '艇番'])
+            # テーブルの型変換
+            self.data = self._type_processing(self.data)
+            # 出走テーブルからレーサーの過去データテーブルを作成 & マージ
+            racer_table = m_racer_table.RacerTable.create_from_syusso(self.race_results.data, self.data)
+            self.data = racer_table.merge_racer_race(self.data)
+            self.data.to_pickle(syusso_pickle_name)
             
-            self.data.to_pickle(pickle_name)
-        # 直前情報のスクレイピングとマージ 
-        before_info = self._scrape_beforeinfo(date, stadium)
-        if before_info.empty == False:
-            self.data = pd.merge(self.data, before_info, on=['レースコード', '艇番'], how='left')
-            self.data.to_pickle(pickle_name)
+        # 直前情報のpickleがあれば復元
+        self.before_info = self.read_pickle(before_pickle_name)
+        # 直前情報のスクレイピングし、新しい直前情報があればマージしてセーブ
+        added_before_info = self._scrape_beforeinfo(date, stadium)
+        if added_before_info.empty == False:
+            self.before_info = pd.concat([self.before_info, added_before_info])
+            self.before_info.to_pickle(before_pickle_name)
         
         
-        # racer_table = create_tables.create_racer_table(self.data, pd.read_pickle("pic_racer_table"))
+        # 直前情報と出走テーブルをマージ
+        self.data = pd.merge(self.data, self.before_info, on=['レースコード', '艇番'], how='left')
         
-        # self.racer_t = racer_table
+        # プリプロセッシング
         self.data_p = self._preprocessing(self.data)
     
+    # pickleファイルを検索しあれば読み込み
+    def read_pickle(self, file_name):
+        is_file = os.path.isfile(file_name)
+        if is_file:
+            return pd.read_pickle(file_name)
+        else:
+            return pd.DataFrame()
+        
+    
     # 出走表データのカテゴリ化
-    def generate_categorical(self, race_results): # RaceResults
+    def generate_categorical(self): # RaceResults
         df = self.data_p.copy()
         # 新規の選手番号を追加
-        mask_register = df['登録番号'].isin(race_results.le_register.classes_)
+        mask_register = df['登録番号'].isin(self.race_results.le_register.classes_)
         new_register_id = df['登録番号'].mask(mask_register).dropna().unique()
-        race_results.le_register.classes_ = np.concatenate([race_results.le_register.classes_, new_register_id])
-        df['登録番号'] =  race_results.le_register.transform(df['登録番号'])
+        self.race_results.le_register.classes_ = np.concatenate([self.race_results.le_register.classes_, new_register_id])
+        df['登録番号'] =  self.race_results.le_register.transform(df['登録番号'])
 
-        shibu = race_results.data_p['支部'].unique()
-        grade = race_results.data_p['級別'].unique()
+        # 出走表でカバーしきれないカテゴリ変数型をレーステーブルから作成
+        shibu = self.race_results.data_p['支部'].unique()
+        grade = self.race_results.data_p['級別'].unique()
+        weather = self.race_results.data_p['天候'].unique()
+        wind_dir = self.race_results.data_p['風向'].unique()
         df['支部'] = pd.Categorical(df['支部'], shibu)
         df['級別'] = pd.Categorical(df['級別'], grade)
-
+        df['天候'] = pd.Categorical(df['天候'], weather)
+        df['風向'] = pd.Categorical(df['風向'], wind_dir)
+        
         # 出走データのダミー変数化
-        df = pd.get_dummies(df, columns=['支部', '級別'])
+        df = pd.get_dummies(df, columns=['支部', '級別', '天候', '風向'])
         df['登録番号'] = df['登録番号'].astype('category')
         return df
-        
-    def _preprocessing(self, data):
+    
+    # 型変換
+    def _type_processing(self, data):
         df = data.copy()
         df['艇番'] = df['艇番'].astype(int)
         df['モーター番号'] = df['モーター番号'].astype(int)
@@ -99,8 +113,12 @@ class SyussoTable:
         df['今節成績_5-2'] = pd.to_numeric(df["今節成績_5-2"], errors="coerce")
         df['今節成績_6-1'] = pd.to_numeric(df["今節成績_6-1"], errors="coerce")
         df['今節成績_6-2'] = pd.to_numeric(df["今節成績_6-2"], errors="coerce")
+        return df
+        
+        
+    def _preprocessing(self, data):
+        df = data.copy()
         df.drop(['選手名', '日付', 'スタジアムコード'], axis=1, inplace=True)
-        df.drop(['コース別_1着率_all', 'コース別_1着率_10', 'コース別_3着率_all', 'コース別_3着率_10'], axis=1, inplace=True)
         df = df.set_index('レースコード')
         
         # 直前情報がでているもののみにする
@@ -191,7 +209,7 @@ class SyussoTable:
             data.append(name)
             data.append(moter_no)
             data.append(boat_no)
-            data.append(register_no)
+            data.append(int(register_no))
             data.append(age)
             data.append(shibu)
             data.append(weight)
@@ -307,6 +325,8 @@ class SyussoTable:
             wind_direction_str = "東"
         if wind_direction == 14:
             wind_direction_str = "南東"
+        if wind_direction_class == "is-wind17":
+            wind_direction_str = "無風"
 
         # print(weather, wind_speed, wave_height)
         # print(wind_direction_str)
@@ -329,9 +349,9 @@ class SyussoTable:
             data.append(teiban)
             data.append(float(tenji_time))
             data.append(weather)
-            data.append(wind_speed.replace('m', ''))
+            data.append(int(wind_speed.replace('m', '')))
             data.append(wind_direction_str)
-            data.append(wave_height.replace('cm', ''))
+            data.append(int(wave_height.replace('cm', '')))
 
             retval.append(data)
 
@@ -360,8 +380,8 @@ class SyussoTable:
             
             # すでに含まれていたらスクレイピングスキップ
             is_null = True
-            if '展示タイム' in self.data:
-                is_null = self.data[self.data['レースコード'] == race_code]['展示タイム'].isna().iloc[0]
+            if not self.before_info.empty:
+                is_null = self.before_info[self.before_info['レースコード'] == race_code].empty
             if is_null == False:
                 print(race_code, '直前情報リクエスト済みなのでスキップ')
                 continue
@@ -389,75 +409,28 @@ class SyussoTable:
         
     
     
-    def _create_racer_array(self, result_table):
-        li = {}
-        for no in result_table['登録番号'].unique():
-            li[no] = result_table[result_table['登録番号'] == no]
-        return li
-    
-    def _create_racer_table(self, source_df, target_df):
-        racer_df = pd.DataFrame()
-        test = self._create_racer_array(target_df)
-        source = self._create_racer_array(source_df)
-
-        for racer_id in test:
-            new_df = test[racer_id].copy()
-            # 過去データ参照するとき用に順位に文字が入っているのを飛ばす (飛ばすのか変換するのか悩みどころ)
-            source_racer = source[int(racer_id)].copy()
-            source_racer['tmp'] = source_racer['着順'].map(lambda x: type(x) == int)
-            source_racer = source_racer[source_racer['tmp']==True].drop(['tmp'], axis=1)
-            source_racer['着順'] = source_racer['着順'].astype(int)
-
-            for i, row in new_df.iterrows():
-                # 着順を計算するラムダ
-                calc_top1_proba = lambda df: 0 if len(df) == 0 else len(df[df['着順'] == 1])/len(df)
-                calc_top3_proba = lambda df: 0 if len(df) == 0 else len(df[df['着順'] <= 3])/len(df)
-
-                # 対象となるレース以前の日付のみのデータに
-                source_prev = source_racer[source_racer['日付'] < row['日付']]
-                stadium_code = row['スタジアムコード']
-                teiban = row['艇番']
-
-                # 全データ/会場/艇番 で絞ったその選手の過去データ
-                all_df     = source_prev
-                stadium_df = source_prev[source_prev['スタジアムコード'] == stadium_code]
-                teiban_df  = source_prev[source_prev['艇番'] == teiban]
-
-                # 全データの1着率,3着率の計算
-                all_top1    = calc_top1_proba(all_df)
-                all_top1_10 = calc_top1_proba(all_df.tail(10))
-                all_top3    = calc_top3_proba(all_df)
-                all_top3_10 = calc_top3_proba(all_df.tail(10))
-                # スタジアムのデータの1着率,3着率の計算
-                stadium_top1    = calc_top1_proba(stadium_df)
-                stadium_top1_10 = calc_top1_proba(stadium_df.tail(10))
-                stadium_top3    = calc_top3_proba(stadium_df)
-                stadium_top3_10 = calc_top3_proba(stadium_df.tail(10))
-                # コース別のデータの1着率,3着率の計算
-                teiban_top1    = calc_top1_proba(teiban_df)
-                teiban_top1_10 = calc_top1_proba(teiban_df.tail(10))
-                teiban_top3    = calc_top3_proba(teiban_df)
-                teiban_top3_10 = calc_top3_proba(teiban_df.tail(10))
-
-                new_df.at[i, '全国_1着率_all'] = all_top1
-                new_df.at[i, '全国_1着率_10'] = all_top1_10
-                new_df.at[i, '全国_3着率_all'] = all_top3
-                new_df.at[i, '全国_3着率_10'] = all_top3_10
-
-                new_df.at[i, '当地_1着率_all'] = stadium_top1 
-                new_df.at[i, '当地_1着率_10'] = stadium_top1_10 
-                new_df.at[i, '当地_3着率_all'] = stadium_top3
-                new_df.at[i, '当地_3着率_10'] = stadium_top3_10 
-
-                new_df.at[i, 'コース別_1着率_all'] = teiban_top1 
-                new_df.at[i, 'コース別_1着率_10'] = teiban_top1_10 
-                new_df.at[i, 'コース別_3着率_all'] = teiban_top3
-                new_df.at[i, 'コース別_3着率_10'] = teiban_top3_10 
-
-            racer_df = pd.concat([racer_df, new_df])
-
-        return racer_df
-
-    
+    # 出走テーブルとレーステーブルのカテゴリ変数化後のカラム名の一致を調べる
+    def _test_categorical_column_names(self):
+        race_d = self.race_results.generate_categorical()
+        syusso_d = self.generate_categorical()
+        diff = set(race_d.columns) ^ set(syusso_d.columns)
+        # 日付とrankはレーステーブル固有のカラム名なのでそれ以外があったらFalse
+        for name in diff:
+            isvalid = name == '日付' or name == 'rank'
+            if isvalid == False:
+                return diff 
+        
+        return True
+    def test(self):
+        flag = True
+        categorical_diff = self._test_categorical_column_names()
+        if not categorical_diff == True:
+            print("レーステーブルと出走テーブルのカラム名が一致しないので出走テーブルは予想モデルに使えない")
+            print(categorical_diff)
+            flag = False
+                
+        if flag == True:
+            print('syusso_table:テスト成功')
+        
     
 # pd.set_option('display.max_rows', 60)

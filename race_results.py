@@ -45,12 +45,9 @@ class RaceResults:
 
         # 出走表にはないデータを落とす
         retval.drop(['進入コース', 'スタートタイミング','レースタイム', '決まり手', 'スタジアムコード'], axis=1, inplace=True)
-        # 直前情報はまだプログラムできていないので落とす
-        retval.drop(['展示タイム', '天候', '風向', '風速(m)', '波の高さ(cm)'], axis=1, inplace=True)
         
         # 不必要だと感じたデータを落とす
         retval.drop(['距離(m)', '選手名'], axis=1, inplace=True)
-        retval.drop(['コース別_1着率_all', 'コース別_1着率_10', 'コース別_3着率_all', 'コース別_3着率_10'], axis=1, inplace=True)
         
         # レースコードをindexとして使う
         retval = retval.set_index('レースコード')

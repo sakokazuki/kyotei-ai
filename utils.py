@@ -60,8 +60,8 @@ def split_data(df, test_size=0.3):
     sorted_id_list = df.sort_values("日付").index.unique()
     train_id_list = sorted_id_list[: round(len(sorted_id_list) * (1-test_size))]
     test_id_list = sorted_id_list[round(len(sorted_id_list) * (1-test_size)) :]
-    train = df.loc[train_id_list].drop(['日付'], axis=1)
-    test = df.loc[test_id_list].drop(['日付'], axis=1)
+    train = df.loc[train_id_list]
+    test = df.loc[test_id_list]
     return train, test
 
 # スタジアムのデータだけにする
