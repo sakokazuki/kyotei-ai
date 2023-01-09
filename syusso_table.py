@@ -69,6 +69,7 @@ class SyussoTable:
         mask_register = df['登録番号'].isin(self.race_results.le_register.classes_)
         new_register_id = df['登録番号'].mask(mask_register).dropna().unique()
         self.race_results.le_register.classes_ = np.concatenate([self.race_results.le_register.classes_, new_register_id])
+        # 登録番号にstrが混じっていることが原因なのか突然エラーが起きることがある
         df['登録番号'] =  self.race_results.le_register.transform(df['登録番号'])
 
         # 出走表でカバーしきれないカテゴリ変数型をレーステーブルから作成
@@ -416,7 +417,7 @@ class SyussoTable:
         diff = set(race_d.columns) ^ set(syusso_d.columns)
         # 日付とrankはレーステーブル固有のカラム名なのでそれ以外があったらFalse
         for name in diff:
-            isvalid = name == '日付' or name == 'rank'
+            isvalid = name == '日付' or name == 'rank1' or name == 'rank3'
             if isvalid == False:
                 return diff 
         

@@ -16,10 +16,14 @@ class RaceResults:
         self.data_p = self._preprocessing(self.data)
         self.le_register = LabelEncoder().fit(self.data_p['登録番号'])
         
-    def generate_categorical(self, rank_map_func=lambda x: 1 if x<2 else 0):
+    def generate_categorical(self):
+        rank1_map_func=lambda x: 1 if x<2 else 0
+        rank3_map_func=lambda x: 1 if x<4 else 0
+        
         retval = self.data_p.copy()
         # 1位になるのを1、それ以外を0に
-        retval['rank'] = retval['着順'].map(rank_map_func)
+        retval['rank1'] = retval['着順'].map(rank1_map_func)
+        retval['rank3'] = retval['着順'].map(rank3_map_func)
         retval.drop(['着順'], axis=1, inplace=True)
         
         # ラベルエンコーディング

@@ -4,6 +4,14 @@ import datetime as dt
 import numpy as np
 import pandas as pd
 
+stadium_list = {'KRY': '01', 'TDA': '02', 'EDG': '03', 'HWJ': '04',
+                'TMG': '05', 'HMN': '06', 'GMG': '07', 'TKN': '08',
+                'TSU': '09', 'MKN': '10', 'BWK': '11', 'SME': '12',
+                'AMG': '13', 'NRT': '14', 'MRG': '15', 'KJM': '16',
+                'MYJ': '17', 'TKY': '18', 'SMS': '19', 'WKM': '20',
+                'ASY': '21', 'FKO': '22', 'KRT': '23', 'OMR': '24'
+                }
+    
 def kanji_to_stadium_code(kanji):
     dict_stadium = {'桐生': 'KRY', '戸田': 'TDA', '江戸川': 'EDG', '平和島': 'HWJ',
                     '多摩川': 'TMG', '浜名湖': 'HMN', '蒲郡': 'GMG', '常滑': 'TKN',

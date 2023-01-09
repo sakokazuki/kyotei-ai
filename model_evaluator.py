@@ -11,17 +11,22 @@ from tqdm import tqdm
 import numpy as np
 
 
-def gain(return_func, X, test, n_samples=100, lower=5000, min_threshold=0.5):
-    gain = {}
-    for i in tqdm(range(n_samples)):
-        threshold = 1 * i / n_samples + min_threshold * (1-(i/n_samples))
-        n_bets, money = return_func(X, test, threshold)
-        if n_bets > lower:
-            # print(n_bets, money)
-            gain[n_bets] = (n_bets*100 + money) / (n_bets*100)
-    return pd.Series(gain)
+# def gain(return_func, X, test, n_samples=100, lower=5000, min_threshold=0.5):
+#     gain = {}
+#     for i in tqdm(range(n_samples)):
+#         threshold = 1 * i / n_samples + min_threshold * (1-(i/n_samples))
+#         n_bets, money = return_func(X, test, threshold)
+#         if n_bets > lower:
+#             # print(n_bets, money)
+#             gain[n_bets] = (n_bets*100 + money) / (n_bets*100)
+#     return pd.Series(gain)
 
-# 上から順に2つ2連複を買うpred_tableの作成
+
+# 2連単の買い目をテーブル化する
+#	                艇番 pred 　　　bet	  exacta 		
+#   20220528OMR06	1	 1.300359	1	   1-3
+#   .....
+#　 の形のテーブルになる
 def pred_table_exacta_top_2(pred_table):
     # 新しくpred_tableをコピーしexacta行をつける
     exacta_pred_table = pred_table.copy()
@@ -30,6 +35,7 @@ def pred_table_exacta_top_2(pred_table):
     # レースコードの数だけ試行
     for race_code in exacta_pred_table.index.unique():
 
+        # レースコードごとのpred_table
         race_pred_table = pred_table.filter(regex=race_code, axis=0)
         if(len(race_pred_table) >= 2):
             # print(race_pred_table.sort_values('pred', ascending=False))
@@ -45,134 +51,184 @@ def pred_table_exacta_top_2(pred_table):
     exacta_pred_table = exacta_pred_table[exacta_pred_table['exacta'] != '']
     return exacta_pred_table
 
-# 単勝
-def win_payoff_list(df):
-    retval = []
-    retval.append(df[df['単勝_艇番']==df['艇番']]['単勝_払戻金'])
-    retval.append(df[df['単勝_艇番']==-1]['単勝_払戻金'])
-    
-    return retval
-
-# 複勝
-def place_payoff_list(df):
-    retval = []
-    
-    # 複勝1着
-    retval.append(df[df['複勝_1着_艇番']==df['艇番']]['複勝_1着_払戻金'])
-    # 複勝2着
-    retval.append(df[df['複勝_2着_艇番']==df['艇番']]['複勝_2着_払戻金'])
-    # 特払い 
-    retval.append(df[df['複勝_1着_艇番']==-1]['複勝_1着_払戻金'])
-    
-    return retval
-
 # 2連単
 def exacta_payoff_list(df):
-    retval = []
+    exacta_1 = df[  
+            (df['2連単_艇番']==df['exacta']) | 
+            (df['2連単_艇番']==-1)
+        ].copy()
+    exacta_1['return'] = exacta_1['2連単_払戻金']
     
-    func = lambda _: _.map(lambda x: '-'.join(map(str, x)))
-    evaluate_func = lambda x, y: x in y.split(',') 
-    
-    winning = []
-    for i, row in df.iterrows():
-        winning.append(row['2連単_艇番'] in row['exacta'])
-    df['winning'] = winning 
-    retval.append(df[df['winning']]['2連単_払戻金'])
-       
-    retval.append(df[df['2連単_艇番'] == -1]['2連単_払戻金'])
-    return retval
-    # df[df['winning'] == True][
-    
-    
-    
-
-    
-# 単勝
-def win_return(pred_table, return_table):
-    n_bets = len(pred_table)
-    money = -100 * n_bets
-    df = return_table.copy() 
-    df = df.merge(pred_table, left_index=True, right_index=True, how='right')
-
-    payoff_list = win_payoff_list(df)
-    for v in payoff_list:
-        money += v.sum()
-        
-    return n_bets, money
-
-# 複勝
-def place_return(pred_table, return_table):
-    n_bets = len(pred_table)
-    money = -100 * n_bets
-    df = return_table.copy() 
-    df = df.merge(pred_table, left_index=True, right_index=True, how='right')
-    
-    payoff_list = place_payoff_list(df)
-    for v in payoff_list:
-        money += v.sum()
-
-    return n_bets, money
+    return exacta_1
 
 # 2連単
 def exacta_return(pred_table, return_table, buy_func=pred_table_exacta_top_2):
     df = return_table.copy() 
     
-    df_p = buy_func(pred_table.copy())
-    df = df.merge(df_p, left_index=True, right_index=True, how='right')
+    pred_table = buy_func(pred_table.copy())
+    df = df.merge(pred_table, left_index=True, right_index=True, how='right')
     
     n_bets = len(df)
+    n_races = df.index.nunique()
+    
+    hit_df = exacta_payoff_list(df)
+    
+    n_hits = len(hit_df)
+    
     money = -100 * n_bets
+    money += hit_df['return'].sum()
     
-    if n_bets == 0:
-        return n_bets, money # 0, 0
-       
-    payoff_list = exacta_payoff_list(df)   
-    for v in payoff_list:
-        money += v.sum()
+    std = hit_df['return'].groupby(level=0).sum().std() * np.sqrt(n_races) / (100 * n_bets)
     
-    return n_bets, money
+    return n_bets, money, n_hits, std
 
-class Gain:
-    def __init__(self, mev, X, test, return_table, n_samples=100, lower=5000, min_threshold=0.5):
+    
+# 複勝
+def place_payoff_list(df):
+    place_1 = df[  
+            (df['複勝_1着_艇番']==df['艇番']) | 
+            (df['複勝_1着_艇番']==-1)
+        ].copy()
+    place_1['return'] = place_1['複勝_1着_払戻金']
+    
+    place_2 = df[df['複勝_2着_艇番']==df['艇番']].copy()
+    place_2['return'] = place_2['複勝_2着_払戻金']
+    
+    return pd.concat([place_1, place_2])
+    
+
+# 複勝
+def place_return(pred_table, return_table):
+    n_bets = len(pred_table)
+    n_races = pred_table.index.nunique()
+    money = -100 * n_bets
+    df = return_table.copy() 
+    df = df.merge(pred_table, left_index=True, right_index=True, how='right')
+    
+    hit_df = place_payoff_list(df)
+    
+    n_hits = len(hit_df)
+    money += hit_df['return'].sum()
+    std = hit_df['return'].groupby(level=0).sum().std() * np.sqrt(n_races) / (100 * n_bets)
+
+    return n_bets, money, n_hits, std
+
+# 単勝
+def win_payoff_list(df):
+    # retval = []
+    df = df[  
+            (df['単勝_艇番']==df['艇番']) | 
+            (df['単勝_艇番']==-1)
+        ].copy()
+    
+    df['return'] = df['単勝_払戻金']
+    return df
+    
+# 単勝
+def win_return(pred_table, return_table):
+    n_bets = len(pred_table)
+    n_races = pred_table.index.nunique()
+    money = -100 * n_bets
+    df = return_table.copy() 
+    df = df.merge(pred_table, left_index=True, right_index=True, how='right')
+    
+    
+    hit_df = win_payoff_list(df)
+    
+    n_hits = len(hit_df)
+    money += hit_df['return'].sum()
+    std = hit_df['return'].groupby(level=0).sum().std() * np.sqrt(n_races) / (100 * n_bets)
+    
+        
+    return n_bets, money, n_hits, std
+    
+    
+class Gain2:
+    def __init__(self, models, stadium_code, return_table, n_samples=100, lower=5000, t_range=[0.5, 3.5]):
+        model_r1 = models.models[stadium_code+'_rank1']
+        model_r3 = models.models[stadium_code+'_rank3']
+        
+        print(model_r1)
         pred_tables = {}
         for i in tqdm(range(n_samples)):
-            threshold = 1 * i / n_samples + min_threshold * (1-(i/n_samples))
-            # pred_table = mev.pred_table(X, test, threshold)
-            pred_tables[threshold] = mev.pred_table(X, test, threshold)
+            threshold = t_range[1] * i / n_samples + t_range[0] * (1-(i/n_samples))
+            pred_tables[threshold] = model_r1.mev.pred_table(model_r1.X_test, threshold)
+        self.pred_tables_r1 = pred_tables
         
-        self.mev = mev
-        self.pred_tables = pred_tables
+        pred_tables = {}
+        for i in tqdm(range(n_samples)):
+            threshold = t_range[1] * i / n_samples + t_range[0] * (1-(i/n_samples))
+            pred_tables[threshold] = model_r3.mev.pred_table(model_r3.X_test, threshold)
+        self.pred_tables_r3 = pred_tables
+        
         self.return_table = return_table
         self.lower = lower
         
-        # self.X = X
-        # self.test = test
-        
-    def calc_return(self, func, lower=5000):
+    def calc_return(self, return_func):
         gain = {}
-        for pred_table in tqdm(self.pred_tables.values()):
+        for threshold in tqdm(self.pred_tables_r1):
+            pred_table = self.pred_tables_r1[threshold]
+            n_races = pred_table.index.nunique()
             
-            n_bets, money = func(pred_table, self.return_table)
+            n_bets, money, n_hits, std = return_func(pred_table, self.return_table)
             if n_bets > self.lower:
-                gain[n_bets] = (n_bets*100+money) / (n_bets*100)
-        return pd.Series(gain)
+                return_rate = (n_bets*100+money) / (n_bets*100)
+                gain[threshold] = {'return_rate' : return_rate,
+                                'n_hits': n_hits,
+                                'hit_rate': n_hits/n_races,
+                                'std' : std,
+                                'n_bets': n_bets} 
+        return pd.DataFrame(gain).T
+
+
+# class Gain:
+#     def __init__(self, mev, X, return_table, n_samples=100, lower=5000, t_range=[0.5, 3.5]):
+#         pred_tables = {}
+#         for i in tqdm(range(n_samples)):
+#             threshold = t_range[1] * i / n_samples + t_range[0] * (1-(i/n_samples))
+#             # pred_table = mev.pred_table(X, test, threshold)
+#             pred_tables[threshold] = mev.pred_table(X, threshold)
+        
+#         self.mev = mev
+#         self.pred_tables = pred_tables
+#         self.return_table = return_table
+#         self.lower = lower
+        
+#         # self.X = X
+#         # self.test = test
+        
+#     def calc_return(self, return_func):
+#         gain = {}
+#         for threshold in tqdm(self.pred_tables):
+#             pred_table = self.pred_tables[threshold]
+#             n_races = pred_table.index.nunique()
+            
+#             n_bets, money, n_hits, std = return_func(pred_table, self.return_table)
+#             if n_bets > self.lower:
+#                 return_rate = (n_bets*100+money) / (n_bets*100)
+#                 gain[threshold] = {'return_rate' : return_rate,
+#                                 'n_hits': n_hits,
+#                                 'hit_rate': n_hits/n_races,
+#                                 'std' : std,
+#                                 'n_bets': n_bets} 
+#         return pd.DataFrame(gain).T
         
     
 class ModelEvaluator:
-    def __init__(self, model, return_table, std=True):
+    def __init__(self, model):
         self.model = model
-        self.return_table = return_table.copy()
-        self.std = std
-    
-    # def predict_proba(self, X):
-    #     return self.model.predict_proba(X)[:, 1]
     
     # モデルからpredict値を取得し、std=Trueで標準偏差を計算してから0-1にmapする
-    def predict_proba(self, X):
+    def predict_proba(self, X, std=True, minmax=False):
         proba = pd.Series(self.model.predict_proba(X)[:, 1], index=X.index)
-        if self.std:
+        
+        # 標準化: レース内で相対評価
+        if std:
             standard_scaler = lambda x: (x - x.mean()) / x.std()
             proba = proba.groupby(level=0).transform(standard_scaler)
+        
+        if minmax:
+            # min-max スケーリング
             proba = (proba - proba.min()) / (proba.max() - proba.min())
         return proba
     
@@ -196,48 +252,12 @@ class ModelEvaluator:
     
     def pred_table(self, X, threshold=0.5, bet_only=True):
         pred_table = X.copy()[['艇番']]
-        pred_table['pred'] = self.predict(X, threshold)
-        if bet_only:
-            return pred_table[pred_table['pred']==1]['艇番']
-        else:
-            return pred_table
-        
-    # 予測データのしきい値を設定し、買う舟券のテーブルだけを見やすく作成する
-    def pred_table(self, X, test, threshold=0.5, bet_only=True):
-        pred_table = test.copy()[['艇番']]
+        # pred_table['pred'] = self.predict(X, threshold)
         pred_table['pred'] = self.predict_proba(X)
         pred_table['bet'] = self.predict_map(pred_table['pred'], threshold) 
+        
         if bet_only:
             return pred_table[pred_table['bet']==1]
         else:
             return pred_table
         
-    def fukusho_return(self, X, threshold=0.5):
-        pred_table = self.pred_table(X, threshold)
-        n_bets = len(pred_table)
-        money = -100 * len(pred_table)
-        df = self.return_table.copy()
-        
-        df = df.merge(pred_table, left_index=True, right_index=True, how='right')
-        
-        # 複勝1着
-        money += df[df['複勝_1着_艇番']==df['艇番']]['複勝_1着_払戻金'].sum()
-        # 複勝2着
-        money += df[df['複勝_2着_艇番']==df['艇番']]['複勝_2着_払戻金'].sum()
-        # 特払い 
-        money += df[df['複勝_1着_艇番']==-1]['複勝_1着_払戻金'].sum()
-        return n_bets, money
-    
-    def tansho_return(self, X, threshold=0.5):
-        pred_table = self.pred_table(X, threshold)
-        n_bets = len(pred_table)
-        money = -100 * n_bets
-        df = self.return_table.copy()
-        
-        df = df.merge(pred_table, left_index=True, right_index=True, how='right')
-        
-        # 単勝1着
-        money += df[df['単勝_艇番']==df['艇番']]['単勝_払戻金'].sum()
-        # 特払い 
-        money += df[df['単勝_艇番']==-1]['単勝_払戻金'].sum()
-        return n_bets, money
