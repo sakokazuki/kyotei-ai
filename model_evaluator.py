@@ -154,9 +154,8 @@ def exacta_buy_func1(r1, r3):
 
 
 # 2連単
-def exacta_return(self_gain):
+def exacta_return(self_gain, threshold_r1=1.9):
     # 1着以内に入るpred_table閾値決め打ちで作成
-    threshold_r1 = 1.9
     pred_table_r1 = pd.DataFrame()
     for threshold in self_gain.pred_tables_r1:
         if threshold > threshold_r1:
@@ -194,9 +193,8 @@ def exacta_return(self_gain):
     return pd.DataFrame(gain).T, return_list
 
 # 2連単 1頭で買わない
-def exacta_remove1R_return(self_gain):
+def exacta_remove1R_return(self_gain, threshold_r1=0.2):
     # 1着以内に入るpred_table閾値決め打ちで作成
-    threshold_r1 = 0.2
     pred_table_r1 = pd.DataFrame()
     for threshold in self_gain.pred_tables_r1:
         if threshold > threshold_r1:
@@ -317,7 +315,7 @@ def trifecta_buy_func1(r1, r3):
     return df
 
 # 3連単
-def trifecta_return(self_gain):
+def trifecta_return(self_gain, threshold_r1=1.9):
     # 1着以内に入るpred_table閾値決め打ちで作成
     threshold_r1 = 1.9
     pred_table_r1 = pd.DataFrame()
@@ -355,9 +353,8 @@ def trifecta_return(self_gain):
     return pd.DataFrame(gain).T , return_list
 
 # 3連単で1頭買わない
-def trifecta_remove1R_return(self_gain):
+def trifecta_remove1R_return(self_gain, threshold_r1=0.2):
     # 1着以内に入るpred_table閾値決め打ちで作成
-    threshold_r1 = 0.2 # 買い目が減っても良ければ0.8なども
     pred_table_r1 = pd.DataFrame()
     for threshold in self_gain.pred_tables_r1:
         if threshold > threshold_r1:
